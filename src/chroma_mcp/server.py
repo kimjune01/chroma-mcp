@@ -249,7 +249,7 @@ async def chroma_peek_collection(
     collection_name: str,
     limit: int = 5
 ) -> Dict:
-    """Peek at documents in a Chroma collection.
+    """Peek at documents in a Chroma collection, excluding embeddings from the result.
     
     Args:
         collection_name: Name of the collection to peek into
@@ -259,6 +259,15 @@ async def chroma_peek_collection(
     try:
         collection = client.get_collection(collection_name)
         results = collection.peek(limit=limit)
+        # Remove embeddings if present
+        if isinstance(results, dict) and "embeddings" in results:
+            results = {k: v for k, v in results.items() if k != "embeddings"}
+        elif isinstance(results, list):
+            # If it's a list of dicts, remove 'embeddings' from each dict
+            results = [
+                {k: v for k, v in doc.items() if k != "embeddings"} if isinstance(doc, dict) else doc
+                for doc in results
+            ]
         return results
     except Exception as e:
         raise Exception(f"Failed to peek collection '{collection_name}': {str(e)}") from e
