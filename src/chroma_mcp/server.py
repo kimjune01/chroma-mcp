@@ -10,7 +10,7 @@ import datetime
 import re
 
 # Initialize FastMCP server
-mcp = FastMCP("chroma")
+mcp = FastMCP("history")
 
 # Global variables
 _chroma_client = None
@@ -203,7 +203,7 @@ async def get_memory_documents(
     limit: Optional[int] = 10,
     offset: Optional[int] = 0
 ) -> Dict:
-    """Get documents from a memory with optional filtering. Use this to retrieve specific documents or subsets of documents from a memory by ID or filter criteria. Note: memory IDs are actually URLs of web pages."""
+    """Get documents from a memory with optional filtering. Use this to retrieve specific documents or subsets of documents from a memory by ID or filter criteria."""
     _validate_non_empty_str(memory_name, "memory_name")
     if ids is not None:
         _validate_non_empty_list(ids, "ids")
