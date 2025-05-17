@@ -309,6 +309,30 @@ async def health_check() -> dict:
         result["error"] = f"DB connection failed: {str(e)}"
     return result
 
+@mcp.tool()
+async def create_memory(
+    mcp_client_name: str,
+    memory_content: str,
+) -> str:
+    """Create a new memory.
+
+    Args:
+        mcp_client_name: Name of the MCP Client. e.g. "claude-desktop"
+        memory_content: Content of the memory, either summarized or raw.
+    """
+    client = get_chroma_client()
+    try:
+        created_at_epoch = datetime.datetime.now().timestamp()
+        collection = client.get_or_create_collection(mcp_client_name)
+        # Store created_at as epoch
+        collection.add(
+            documents=[memory_content],
+            metadatas=[{"created_at": created_at_epoch}]
+        )
+        return f"Successfully added 1 document to memory '{mcp_client_name}'"
+    except Exception as e:
+        raise Exception(f"Failed to add document to memory '{mcp_client_name}': {str(e)}") from e
+
 def main():
     """Entry point for the Chroma MCP server."""
     parser = create_parser()
