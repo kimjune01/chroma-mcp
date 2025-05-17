@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import argparse
 from chromadb.config import Settings
 import ssl
+import datetime
+import re
 
 # Initialize FastMCP server
 mcp = FastMCP("chroma")
@@ -113,52 +115,74 @@ def get_chroma_client(args=None):
             _chroma_client = chromadb.EphemeralClient()
     return _chroma_client
 
+def _validate_non_empty_str(val, name):
+    if not isinstance(val, str) or not val.strip():
+        raise ValueError(f"{name} must be a non-empty string.")
+
+def _validate_non_empty_list(val, name):
+    if not isinstance(val, list) or not val or not all(isinstance(x, str) and x.strip() for x in val):
+        raise ValueError(f"{name} must be a non-empty list of strings.")
+
+def _validate_positive_int(val, name):
+    if val is not None and (not isinstance(val, int) or val < 1):
+        raise ValueError(f"{name} must be a positive integer if provided.")
+
+def _validate_iso8601(val, name):
+    try:
+        datetime.datetime.fromisoformat(val.replace('Z', '+00:00'))
+    except Exception:
+        raise ValueError(f"{name} must be a valid ISO 8601 date string.")
+
 ##### Query and Listing Tools #####
 
 @mcp.tool()
-async def chroma_list_collections(
-    limit: Optional[int] = None,
-    offset: Optional[int] = None
+async def list_memories(
+    limit: Optional[int] = 10,
+    offset: Optional[int] = 0
 ) -> List[str]:
-    """List all collection names in the Chroma database with pagination support."""
+    """List all memory names in the database with pagination support. This is useful for discovering available memory stores for further queries."""
+    _validate_positive_int(limit, "limit")
+    _validate_positive_int(offset, "offset")
     client = get_chroma_client()
     try:
         colls = client.list_collections(limit=limit, offset=offset)
         return [coll.name for coll in colls]
     except Exception as e:
-        raise Exception(f"Failed to list collections: {str(e)}") from e
+        raise Exception(f"Failed to list memories: {str(e)}") from e
 
 @mcp.tool()
-async def chroma_get_collection_info(collection_name: str) -> Dict:
-    """Get information about a Chroma collection."""
+async def get_memory_info(memory_name: str) -> Dict:
+    """Get information about a memory. Use this to inspect the size and sample contents of a specific memory before querying in detail."""
+    _validate_non_empty_str(memory_name, "memory_name")
     client = get_chroma_client()
     try:
-        collection = client.get_collection(collection_name)
+        collection = client.get_collection(memory_name)
         count = collection.count()
         peek_results = collection.peek(limit=3)
         return {
-            "name": collection_name,
+            "name": memory_name,
             "count": count,
             "sample_documents": peek_results
         }
     except Exception as e:
-        raise Exception(f"Failed to get collection info for '{collection_name}': {str(e)}") from e
+        raise Exception(f"Failed to get memory info for '{memory_name}': {str(e)}") from e
 
 @mcp.tool()
-async def chroma_query_documents(
-    collection_name: str,
+async def query_memories(
+    memory_name: str,
     query_texts: List[str],
-    n_results: int = 5,
+    n_results: int = 10,
     where: Optional[Dict] = None,
     where_document: Optional[Dict] = None,
     include: List[str] = ["documents", "metadatas", "distances"]
 ) -> Dict:
-    """Query documents from a Chroma collection with advanced filtering."""
-    if not query_texts:
-        raise ValueError("The 'query_texts' list cannot be empty.")
+    """Query documents from a memory with advanced filtering. This tool is ideal for retrieving relevant documents from a specific memory based on query text and optional filters. Querying by text performs a semantic search using vector embeddings."""
+    _validate_non_empty_str(memory_name, "memory_name")
+    _validate_non_empty_list(query_texts, "query_texts")
+    _validate_positive_int(n_results, "n_results")
     client = get_chroma_client()
     try:
-        collection = client.get_collection(collection_name)
+        collection = client.get_collection(memory_name)
         return collection.query(
             query_texts=query_texts,
             n_results=n_results,
@@ -167,22 +191,27 @@ async def chroma_query_documents(
             include=include
         )
     except Exception as e:
-        raise Exception(f"Failed to query documents from collection '{collection_name}': {str(e)}") from e
+        raise Exception(f"Failed to query documents from memory '{memory_name}': {str(e)}") from e
 
 @mcp.tool()
-async def chroma_get_documents(
-    collection_name: str,
+async def get_memory_documents(
+    memory_name: str,
     ids: Optional[List[str]] = None,
     where: Optional[Dict] = None,
     where_document: Optional[Dict] = None,
     include: List[str] = ["documents", "metadatas"],
-    limit: Optional[int] = None,
-    offset: Optional[int] = None
+    limit: Optional[int] = 10,
+    offset: Optional[int] = 0
 ) -> Dict:
-    """Get documents from a Chroma collection with optional filtering."""
+    """Get documents from a memory with optional filtering. Use this to retrieve specific documents or subsets of documents from a memory by ID or filter criteria. Note: memory IDs are actually URLs of web pages."""
+    _validate_non_empty_str(memory_name, "memory_name")
+    if ids is not None:
+        _validate_non_empty_list(ids, "ids")
+    _validate_positive_int(limit, "limit")
+    _validate_positive_int(offset, "offset")
     client = get_chroma_client()
     try:
-        collection = client.get_collection(collection_name)
+        collection = client.get_collection(memory_name)
         return collection.get(
             ids=ids,
             where=where,
@@ -192,32 +221,34 @@ async def chroma_get_documents(
             offset=offset
         )
     except Exception as e:
-        raise Exception(f"Failed to get documents from collection '{collection_name}': {str(e)}") from e
+        raise Exception(f"Failed to get documents from memory '{memory_name}': {str(e)}") from e
 
 @mcp.tool()
-async def query_collections_by_date_range(
-    collection_names: List[str],
+async def query_memories_by_date_range(
+    memory_names: List[str],
     start_date: str,
     end_date: str,
-    limit: Optional[int] = None,
-    offset: Optional[int] = None
+    limit: Optional[int] = 10,
+    offset: Optional[int] = 0
 ) -> Dict[str, Dict]:
     """
-    Query documents from multiple collections within a date range.
-    Assumes the document metadata contains a 'date' field in ISO 8601 format (e.g., '2024-06-01T00:00:00Z').
-    Args:
-        collection_names: List of collection names to query
-        start_date: Start of the date range (inclusive, ISO 8601 string)
-        end_date: End of the date range (inclusive, ISO 8601 string)
-        limit: Optional max number of documents per collection
-        offset: Optional offset per collection
-    Returns:
-        Dictionary mapping collection name to query results
+    Query documents from multiple memories within a date range. This is useful for retrieving time-bounded data across several memories, such as logs or events within a specific period.
     """
+    _validate_non_empty_list(memory_names, "memory_names")
+    _validate_iso8601(start_date, "start_date")
+    _validate_iso8601(end_date, "end_date")
+    _validate_positive_int(limit, "limit")
+    _validate_positive_int(offset, "offset")
     client = get_chroma_client()
     results = {}
-    where = {"date": {"$gte": start_date, "$lte": end_date}}
-    for name in collection_names:
+    # Convert ISO 8601 to epoch seconds
+    def iso_to_epoch(s):
+        dt = datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))
+        return dt.timestamp()
+    start_epoch = iso_to_epoch(start_date)
+    end_epoch = iso_to_epoch(end_date)
+    where = {"created_at": {"$gte": start_epoch, "$lte": end_epoch}}
+    for name in memory_names:
         try:
             collection = client.get_collection(name)
             docs = collection.get(where=where, limit=limit, offset=offset)
@@ -227,29 +258,23 @@ async def query_collections_by_date_range(
     return results
 
 @mcp.tool()
-async def query_collections_with_texts(
-    collection_names: List[str],
+async def query_memories_with_texts(
+    memory_names: List[str],
     query_texts: List[str],
-    n_results: int = 5,
+    n_results: int = 10,
     where: Optional[Dict] = None,
     where_document: Optional[Dict] = None,
     include: List[str] = ["documents", "metadatas", "distances"]
 ) -> Dict[str, Dict]:
     """
-    Query multiple collections with the same query texts.
-    Args:
-        collection_names: List of collection names to query
-        query_texts: List of query texts to search for
-        n_results: Number of results to return per query (per collection)
-        where: Optional metadata filters
-        where_document: Optional document content filters
-        include: List of what to include in response
-    Returns:
-        Dictionary mapping collection name to query results
+    Query multiple memories with the same query texts. Use this to perform parallel or comparative searches across several memories at once. Querying by text performs a semantic search using vector embeddings.
     """
+    _validate_non_empty_list(memory_names, "memory_names")
+    _validate_non_empty_list(query_texts, "query_texts")
+    _validate_positive_int(n_results, "n_results")
     client = get_chroma_client()
     results = {}
-    for name in collection_names:
+    for name in memory_names:
         try:
             collection = client.get_collection(name)
             res = collection.query(
@@ -259,10 +284,30 @@ async def query_collections_with_texts(
                 where_document=where_document,
                 include=include
             )
+            if isinstance(res, dict) and "embeddings" in res:
+                res = {k: v for k, v in res.items() if k != "embeddings"}
             results[name] = res
         except Exception as e:
             results[name] = {"error": str(e)}
     return results
+
+@mcp.tool()
+async def health_check() -> dict:
+    """Check if the server can import chromadb and connect to the database. Useful for monitoring and debugging deployments."""
+    result = {"chromadb_imported": False, "db_connection": False}
+    try:
+        import chromadb
+        result["chromadb_imported"] = True
+    except Exception as e:
+        result["error"] = f"chromadb import failed: {str(e)}"
+        return result
+    try:
+        client = get_chroma_client()
+        client.list_collections(limit=1)
+        result["db_connection"] = True
+    except Exception as e:
+        result["error"] = f"DB connection failed: {str(e)}"
+    return result
 
 def main():
     """Entry point for the Chroma MCP server."""
