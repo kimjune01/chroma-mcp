@@ -310,28 +310,114 @@ async def health_check() -> dict:
     return result
 
 @mcp.tool()
-async def create_memory(
+async def remember_this_conversation(
     mcp_client_name: str,
-    memory_content: str,
+    conversation_content: str,
 ) -> str:
-    """Create a new memory.
+    """Remember current conversation by storing it in the database so that it can be retrieved later.
 
     Args:
         mcp_client_name: Name of the MCP Client. e.g. "claude-desktop"
-        memory_content: Content of the memory, either summarized or raw.
+        conversation_content: Content of the conversation, either summarized or raw.
+    
+    Example queries that should trigger this tool:
+        - "Memorize this conversation"
+        - "Store our current chat"
+        - "Remember this chat"
+        - "Save our discussion"
+        - "Log this conversation"
+        - "Archive this exchange"
+        - "Store this session for later"
     """
     client = get_chroma_client()
     try:
         created_at_epoch = datetime.datetime.now().timestamp()
         collection = client.get_or_create_collection(mcp_client_name)
+        doc_id =f"{mcp_client_name}_{created_at_epoch}"
         # Store created_at as epoch
         collection.add(
-            documents=[memory_content],
-            metadatas=[{"created_at": created_at_epoch}]
+            documents=[conversation_content],
+            metadatas=[{"created_at": created_at_epoch}],
+            ids=[doc_id]
         )
-        return f"Successfully added 1 document to memory '{mcp_client_name}'"
+        return f"Successfully memorized 1 conversation in memory '{mcp_client_name}'"
     except Exception as e:
-        raise Exception(f"Failed to add document to memory '{mcp_client_name}': {str(e)}") from e
+        raise Exception(f"Failed to memorize conversation in memory '{mcp_client_name}': {str(e)}") from e
+
+def _sort_and_limit_docs(docs: dict, n_results: int) -> dict:
+    if isinstance(docs, dict) and "metadatas" in docs and isinstance(docs["metadatas"], list):
+        metadatas = docs["metadatas"]
+        if all(isinstance(md, dict) and "created_at" in md for md in metadatas):
+            sort_indices = sorted(range(len(metadatas)), key=lambda i: metadatas[i]["created_at"], reverse=True)
+            for k in docs:
+                if isinstance(docs[k], list) and len(docs[k]) == len(sort_indices):
+                    docs[k] = [docs[k][i] for i in sort_indices]
+            for k in docs:
+                if isinstance(docs[k], list):
+                    docs[k] = docs[k][:n_results]
+    return docs
+
+@mcp.tool()
+async def recall_recent_conversations(
+    mcp_client_name: str,
+    n_results: int = 1,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+) -> dict:
+    """Recall recent conversations and chats by retrieving them from the database.
+    
+    Args:
+        mcp_client_name: Name of the MCP Client. e.g. "claude-desktop"
+        n_results: Number of recent conversations to recall.
+        start_time: (Optional) Only recall conversations after this ISO 8601 time.
+        end_time: (Optional) Only recall conversations before this ISO 8601 time.
+    
+    If no time range is specified, the tool will automatically expand the search window: it will first try since yesterday, then since a week ago, then a month ago, then a year ago, until results are found or all windows are exhausted.
+    
+    Returns:
+        A dict of recalled conversations, sorted by most recent first (may be empty).
+    """
+    client = get_chroma_client()
+    try:
+        collection = client.get_collection(mcp_client_name)
+        if not collection:
+            return {"error": f"No memory found for '{mcp_client_name}'"}
+        now = datetime.datetime.now(datetime.timezone.utc)
+        # If time range is specified, use it
+        if start_time or end_time:
+            start_epoch = None
+            end_epoch = None
+            if start_time:
+                _validate_iso8601(start_time, "start_time")
+                start_epoch = datetime.datetime.fromisoformat(start_time.replace('Z', '+00:00')).timestamp()
+            if end_time:
+                _validate_iso8601(end_time, "end_time")
+                end_epoch = datetime.datetime.fromisoformat(end_time.replace('Z', '+00:00')).timestamp()
+            where = {}
+            if start_epoch is not None and end_epoch is not None:
+                where["created_at"] = {"$gte": start_epoch, "$lte": end_epoch}
+            elif start_epoch is not None:
+                where["created_at"] = {"$gte": start_epoch}
+            elif end_epoch is not None:
+                where["created_at"] = {"$lte": end_epoch}
+            docs = collection.get(where=where)
+            return _sort_and_limit_docs(docs, n_results)
+        # Exponential backoff: 1 day, 1 week, 1 month, 1 year
+        windows = [datetime.timedelta(days=1), datetime.timedelta(weeks=1), datetime.timedelta(days=30), datetime.timedelta(days=365)]
+        last_docs = None
+        for window in windows:
+            start_dt = now - window
+            start_epoch = start_dt.timestamp()
+            where = {"created_at": {"$gte": start_epoch}}
+            docs = collection.get(where=where)
+            last_docs = docs
+            docs_sorted = _sort_and_limit_docs(docs, n_results)
+            if docs_sorted.get("documents"):
+                return docs_sorted
+        # If all windows are empty, return the last (widest) result, limited
+        return _sort_and_limit_docs(last_docs if last_docs is not None else {}, n_results)
+    except Exception as e:
+        return {"error": f"Failed to recall recent conversations from memory '{mcp_client_name}': {str(e)}"}
 
 def main():
     """Entry point for the Chroma MCP server."""
