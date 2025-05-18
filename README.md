@@ -1,187 +1,96 @@
-<p align="center">
-  <a href="https://trychroma.com"><img src="https://user-images.githubusercontent.com/891664/227103090-6624bf7d-9524-4e05-9d2c-c28d5d451481.png" alt="Chroma logo"></a>
-</p>
+# Chroma DB Query Tool
 
-<p align="center">
-    <b>Chroma - the open-source embedding database</b>. <br />
-    The fastest way to build Python or JavaScript LLM apps with memory!
-</p>
+A simple and efficient tool to query your local [Chroma DB](https://www.trychroma.com/) and its collections.  
+The data in your Chroma DB is populated by a separate browser scraper repository.
 
-<p align="center">
-  <a href="https://discord.gg/MMeYNTmh3x" target="_blank">
-      <img src="https://img.shields.io/discord/1073293645303795742?cacheSeconds=3600" alt="Discord">
-  </a> |
-  <a href="https://github.com/chroma-core/chroma/blob/master/LICENSE" target="_blank">
-      <img src="https://img.shields.io/static/v1?label=license&message=Apache 2.0&color=white" alt="License">
-  </a> |
-  <a href="https://docs.trychroma.com/" target="_blank">
-      Docs
-  </a> |
-  <a href="https://www.trychroma.com/" target="_blank">
-      Homepage
-  </a>
-</p>
-
-# Chroma MCP Server
-
-[![smithery badge](https://smithery.ai/badge/@chroma-core/chroma-mcp)](https://smithery.ai/server/@chroma-core/chroma-mcp)
-
-[The Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) is an open protocol designed for effortless integration between LLM applications and external data sources or tools, offering a standardized framework to seamlessly provide LLMs with the context they require.
-
-This server provides data retrieval capabilities powered by Chroma, enabling AI models to create collections over generated data and user inputs, and retrieve that data using vector search, full text search, metadata filtering, and more.
+---
 
 ## Features
 
-- **Flexible Client Types**
-  - Ephemeral (in-memory) for testing and development
-  - Persistent for file-based storage
-  - HTTP client for self-hosted Chroma instances
-  - Cloud client for Chroma Cloud integration (automatically connects to api.trychroma.com)
+- Query local Chroma DB collections with ease
+- Explore and filter data stored in your Chroma instance
+- Designed to work seamlessly with data ingested from an external browser scraper
 
-- **Collection Management**
-  - Create, modify, and delete collections
-  - List all collections with pagination support
-  - Get collection information and statistics
-  - Configure HNSW parameters for optimized vector search
-  - Select embedding functions when creating collections
+---
 
-- **Document Operations**
-  - Add documents with optional metadata and custom IDs
-  - Query documents using semantic search
-  - Advanced filtering using metadata and document content
-  - Retrieve documents by IDs or filters
-  - Full text search capabilities
+## Prerequisites
 
-### Supported Tools
+- [Chroma DB](https://www.trychroma.com/) running locally
+- Data ingested into Chroma DB via the companion browser scraper repository
+- Python 3.8+ (or specify your language/environment if different)
+- (Optional) Virtual environment for Python projects
 
-- `chroma_list_collections` - List all collections with pagination support
-- `chroma_create_collection` - Create a new collection with optional HNSW configuration
-- `chroma_peek_collection` - View a sample of documents in a collection
-- `chroma_get_collection_info` - Get detailed information about a collection
-- `chroma_get_collection_count` - Get the number of documents in a collection
-- `chroma_modify_collection` - Update a collection's name or metadata
-- `chroma_delete_collection` - Delete a collection
-- `chroma_add_documents` - Add documents with optional metadata and custom IDs
-- `chroma_query_documents` - Query documents using semantic search with advanced filtering
-- `chroma_get_documents` - Retrieve documents by IDs or filters with pagination
-- `chroma_update_documents` - Update existing documents' content, metadata, or embeddings
-- `chroma_delete_documents` - Delete specific documents from a collection
+---
 
-### Embedding Functions
-Chroma MCP supports several embedding functions: `default`, `cohere`, `openai`, `jina`, `voyageai`, and `roboflow`.
+## Setup
 
-The embedding functions utilize Chroma's collection configuration, which persists the selected embedding function of a collection for retrieval. Once a collection is created using the collection configuration, on retrieval for future queries and inserts, the same embedding function will be used, without needing to specify the embedding function again. Embedding function persistance was added in v1.0.0 of Chroma, so if you created a collection using version <=0.6.3, this feature is not supported.
+1. **Clone this repository:**
 
-When accessing embedding functions that utilize external APIs, please be sure to add the environment variable for the API key with the correct format, found in [Embedding Function Environment Variables](#embedding-function-environment-variables)
+   ```bash
+   git clone https://github.com/yourusername/chroma-db-query-tool.git
+   cd chroma-db-query-tool
+   ```
 
-## Usage with Claude Desktop
+2. **Install dependencies:**
 
-1. To add an ephemeral client, add the following to your `claude_desktop_config.json` file:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```json
-"chroma": {
-    "command": "uvx",
-    "args": [
-        "chroma-mcp"
-    ]
-}
-```
+3. **Ensure your Chroma DB is running locally and populated with data from the browser scraper.**
 
-2. To add a persistent client, add the following to your `claude_desktop_config.json` file:
+---
 
-```json
-"chroma": {
-    "command": "uvx",
-    "args": [
-        "chroma-mcp",
-        "--client-type",
-        "persistent",
-        "--data-dir",
-        "/full/path/to/your/data/directory"
-    ]
-}
-```
+## Usage
 
-This will create a persistent client that will use the data directory specified.
+1. **Start the query tool:**
 
-3. To connect to Chroma Cloud, add the following to your `claude_desktop_config.json` file:
+   ```bash
+   python main.py
+   ```
 
-```json
-"chroma": {
-    "command": "uvx",
-    "args": [
-        "chroma-mcp",
-        "--client-type",
-        "cloud",
-        "--tenant",
-        "your-tenant-id",
-        "--database",
-        "your-database-name",
-        "--api-key",
-        "your-api-key"
-    ]
-}
-```
+   _(Replace `main.py` with your entry point if different)_
 
-This will create a cloud client that automatically connects to api.trychroma.com using SSL.
+2. **Query collections:**
 
-**Note:** Adding API keys in arguments is fine on local devices, but for safety, you can also specify a custom path for your environment configuration file using the `--dotenv-path` argument within the `args` list, for example: `"args": ["chroma-mcp", "--dotenv-path", "/custom/path/.env"]`.
+   - List available collections
+   - Search or filter data by your desired criteria
 
-4. To connect to a [self-hosted Chroma instance on your own cloud provider](https://docs.trychroma.com/
-production/deployment), add the following to your `claude_desktop_config.json` file:
+3. **Example query:**
 
-```json
-"chroma": {
-    "command": "uvx",
-    "args": [
-      "chroma-mcp", 
-      "--client-type", 
-      "http", 
-      "--host", 
-      "your-host", 
-      "--port", 
-      "your-port", 
-      "--custom-auth-credentials",
-      "your-custom-auth-credentials",
-      "--ssl",
-      "true"
-    ]
-}
-```
+   ```python
+   # Example Python code to query a collection
+   from chromadb import Client
 
-This will create an HTTP client that connects to your self-hosted Chroma instance.
+   client = Client()
+   collection = client.get_collection("your_collection_name")
+   results = collection.query("your search term")
+   print(results)
+   ```
 
-### Demos
+---
 
-Find reference usages, such as shared knowledge bases & adding memory to context windows in the [Chroma MCP Docs](https://docs.trychroma.com/integrations/frameworks/anthropic-mcp#using-chroma-with-claude)
+## Data Source
 
-### Using Environment Variables
+- Data is provided by a separate browser scraper repository.
+- Make sure to run the scraper and ingest data into your local Chroma DB before querying.
 
-You can also use environment variables to configure the client. The server will automatically load variables from a `.env` file located at the path specified by `--dotenv-path` (defaults to `.chroma_env` in the working directory) or from system environment variables. Command-line arguments take precedence over environment variables.
+---
 
-```bash
-# Common variables
-export CHROMA_CLIENT_TYPE="http"  # or "cloud", "persistent", "ephemeral"
+## Contributing
 
-# For persistent client
-export CHROMA_DATA_DIR="/full/path/to/your/data/directory"
+Contributions are welcome! Please open issues or submit pull requests for improvements.
 
-# For cloud client (Chroma Cloud)
-export CHROMA_TENANT="your-tenant-id"
-export CHROMA_DATABASE="your-database-name"
-export CHROMA_API_KEY="your-api-key"
+---
 
-# For HTTP client (self-hosted)
-export CHROMA_HOST="your-host"
-export CHROMA_PORT="your-port"
-export CHROMA_CUSTOM_AUTH_CREDENTIALS="your-custom-auth-credentials"
-export CHROMA_SSL="true"
+## License
 
-# Optional: Specify path to .env file (defaults to .chroma_env)
-export CHROMA_DOTENV_PATH="/path/to/your/.env" 
-```
+[MIT License](LICENSE)  
+_(Or specify your license)_
 
-#### Embedding Function Environment Variables
-When using external embedding functions that access an API key, follow the naming convention
-`CHROMA_<>_API_KEY="<key>"`.
-So to set a Cohere API key, set the environment variable `CHROMA_COHERE_API_KEY=""`. We recommend adding this to a .env file somewhere and using the `CHROMA_DOTENV_PATH` environment variable or `--dotenv-path` flag to set that location for safekeeping.
+---
+
+## Acknowledgements
+
+- [Chroma DB](https://www.trychroma.com/)
+- The browser scraper project for data ingestion
