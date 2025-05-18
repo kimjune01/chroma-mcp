@@ -203,26 +203,61 @@ async def get_memory_info(memory_name: str) -> Dict:
         raise Exception(f"Failed to get memory info for '{memory_name}': {str(e)}") from e
 
 @mcp.tool()
-async def query_memories(
+async def query_memory(
     memory_name: str,
     query_texts: List[str],
     n_results: int = 10,
     where: Optional[Dict] = None,
     where_document: Optional[Dict] = None,
-    include: List[str] = ["documents", "metadatas", "distances"]
+    include: List[str] = ["documents", "metadatas"],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
 ) -> Dict:
-    """Query browser history from a memory with advanced filtering. This tool is ideal for retrieving relevant documents from a specific memory based on query text and optional filters. Querying by text performs a semantic search using vector embeddings."""
+    """Query browser history from a memory with advanced filtering. This tool is ideal for retrieving relevant documents from a specific memory based on query text and optional filters. Querying by text performs a semantic search using vector embeddings.
+    
+    Args:
+        memory_name: Name of the memory (collection) to query.
+        query_texts: List of query strings to search for semantically relevant documents. Each string is embedded and compared to the stored documents to find the most similar ones. This enables natural language search, not just keyword matching.
+            Examples:
+                - ["What articles did I read about AI last week?"]
+                - ["github.com", "python web scraping"]
+                - ["meeting notes from yesterday"]
+        n_results: Number of top results to return for each query text.
+        where: (Optional) Metadata filter for advanced filtering (e.g., {"source": "wikipedia"}).
+        where_document: (Optional) Document content filter for advanced filtering.
+        include: List of fields to include in the result (e.g., ["documents", "metadatas"]).
+        start_date: (Optional) Only include documents created after this ISO 8601 date string.
+        end_date: (Optional) Only include documents created before this ISO 8601 date string.
+    
+    The query_texts parameter is used to specify the search intent in natural language or keywords. The system will return the most semantically similar documents from the memory for each query text provided.
+    If start_date and/or end_date are provided, results will be filtered to only include documents within the specified date range (using the 'created_at' metadata field).
+    """
     _validate_non_empty_str(memory_name, "memory_name")
     _validate_non_empty_list(query_texts, "query_texts")
     _validate_positive_int(n_results, "n_results")
+    if start_date:
+        _validate_iso8601(start_date, "start_date")
+    if end_date:
+        _validate_iso8601(end_date, "end_date")
     client = get_chroma_client()
     try:
         collection = client.get_collection(memory_name)
         _update_collection_metadata(collection)
+        # Build date range filter if needed
+        where_combined = where.copy() if where else {}
+        if start_date or end_date:
+            created_at_filter = {}
+            if start_date:
+                created_at_filter["$gte"] = datetime.datetime.fromisoformat(start_date.replace('Z', '+00:00')).timestamp()
+            if end_date:
+                created_at_filter["$lte"] = datetime.datetime.fromisoformat(end_date.replace('Z', '+00:00')).timestamp()
+            where_combined["created_at"] = created_at_filter
+        # Only pass where if it is not empty, otherwise use None
+        where_arg = where_combined if where_combined else None
         return collection.query(
             query_texts=query_texts,
             n_results=n_results,
-            where=where,
+            where=where_arg,
             where_document=where_document,
             include=include
         )
@@ -299,7 +334,7 @@ async def query_memories_with_texts(
     n_results: int = 10,
     where: Optional[Dict] = None,
     where_document: Optional[Dict] = None,
-    include: List[str] = ["documents", "metadatas", "distances"]
+    include: List[str] = ["documents", "metadatas"]
 ) -> Dict[str, Dict]:
     """
     Query browser history from multiple memories with the same query texts. Use this to perform parallel or comparative searches across several memories at once. Querying by text performs a semantic search using vector embeddings.
@@ -384,7 +419,7 @@ async def delete_all_large_entries() -> str:
     """Delete the oldest n_entries from the memory.
     """
     try:
-        return remove_large_documents_from_all_collections()
+        return remove_large_documents_from_all_collections(30*1024)
     except Exception as e:
         raise Exception(f"Failed to delete all large entries from all memories: {str(e)}") from e
 
