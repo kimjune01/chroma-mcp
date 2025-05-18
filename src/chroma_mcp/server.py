@@ -7,7 +7,7 @@ import argparse
 from chromadb.config import Settings
 import ssl
 import datetime
-import re
+import time
 
 # Initialize FastMCP server
 mcp = FastMCP("history")
@@ -140,13 +140,40 @@ async def list_memories(
     limit: Optional[int] = 100,
     offset: Optional[int] = 0
 ) -> List[str]:
-    """List all memory names in the database with pagination support. This is useful for discovering available memory stores for further queries."""
+    """List all memory names in the database with pagination support. Memories are collections of documents. This is useful for discovering available memory stores for further queries."""
     client = get_chroma_client()
     try:
-        colls = client.list_collections(limit=limit, offset=offset)
-        return [coll.name for coll in colls]
+        # Always list all collections, then sort and apply limit/offset
+        colls = client.list_collections()
+        collection_objs = []
+        for coll in colls:
+            if hasattr(coll, 'metadata'):
+                collection_objs.append(coll)
+            else:
+                try:
+                    collection_objs.append(client.get_collection(coll))
+                except Exception:
+                    pass
+        collection_objs = [c for c in collection_objs if not c.name.startswith("_")]
+        def get_updated_at(c):
+            meta = getattr(c, 'metadata', {}) or {}
+            return int(meta.get('updated_at', 0))
+        collection_objs.sort(key=get_updated_at, reverse=True)
+        # Apply offset and limit after sorting
+        if offset is None:
+            offset = 0
+        if limit is None:
+            limit = len(collection_objs) - offset
+        memory_names = [c.name for c in collection_objs[offset:offset+limit]]
+        return memory_names
     except Exception as e:
         raise Exception(f"Failed to list memories: {str(e)}") from e
+
+def _update_collection_metadata(collection):
+    """Update the collection's metadata with the current timestamp, preserving other metadata."""
+    meta = getattr(collection, 'metadata', {}) or {}
+    meta['updated_at'] = int(time.time())
+    collection.modify(metadata=meta)
 
 @mcp.tool()
 async def get_memory_info(memory_name: str) -> Dict:
@@ -191,6 +218,7 @@ async def query_memories(
     client = get_chroma_client()
     try:
         collection = client.get_collection(memory_name)
+        _update_collection_metadata(collection)
         return collection.query(
             query_texts=query_texts,
             n_results=n_results,
@@ -219,6 +247,7 @@ async def get_memory_documents(
     client = get_chroma_client()
     try:
         collection = client.get_collection(memory_name)
+        _update_collection_metadata(collection)
         return collection.get(
             ids=ids,
             where=where,
