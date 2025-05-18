@@ -317,7 +317,10 @@ async def query_memories_by_date_range(
         return dt.timestamp()
     start_epoch = iso_to_epoch(start_date)
     end_epoch = iso_to_epoch(end_date)
-    where = {"created_at": {"$gte": start_epoch, "$lte": end_epoch}}
+    where = {"$and": [
+        {"created_at": {"$gte": start_epoch}},
+        {"created_at": {"$lte": end_epoch}}
+    ]}
     for name in memory_names:
         try:
             collection = client.get_collection(name)
@@ -472,13 +475,10 @@ async def recall_recent_conversations(
             if end_time:
                 _validate_iso8601(end_time, "end_time")
                 end_epoch = datetime.datetime.fromisoformat(end_time.replace('Z', '+00:00')).timestamp()
-            where = {}
-            if start_epoch is not None and end_epoch is not None:
-                where["created_at"] = {"$gte": start_epoch, "$lte": end_epoch}
-            elif start_epoch is not None:
-                where["created_at"] = {"$gte": start_epoch}
-            elif end_epoch is not None:
-                where["created_at"] = {"$lte": end_epoch}
+            where = {"$and": [
+                {"created_at": {"$gte": start_epoch}},
+                {"created_at": {"$lte": end_epoch}}
+            ]}
             docs = collection.get(where=where)
             return _sort_and_limit_docs(docs, n_results)
         # Exponential backoff: 1 day, 1 week, 1 month, 1 year
