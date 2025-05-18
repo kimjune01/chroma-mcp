@@ -379,6 +379,15 @@ async def remember_this_conversation(
     except Exception as e:
         raise Exception(f"Failed to memorize conversation in memory '{mcp_client_name}': {str(e)}") from e
 
+@mcp.tool()
+async def delete_all_large_entries() -> str:
+    """Delete the oldest n_entries from the memory.
+    """
+    try:
+        return remove_large_documents_from_all_collections()
+    except Exception as e:
+        raise Exception(f"Failed to delete all large entries from all memories: {str(e)}") from e
+
 def _sort_and_limit_docs(docs: dict, n_results: int) -> dict:
     if isinstance(docs, dict) and "metadatas" in docs and isinstance(docs["metadatas"], list):
         metadatas = docs["metadatas"]
@@ -453,6 +462,41 @@ async def recall_recent_conversations(
         return _sort_and_limit_docs(last_docs if last_docs is not None else {}, n_results)
     except Exception as e:
         return {"error": f"Failed to recall recent conversations from memory '{mcp_client_name}': {str(e)}"}
+
+def remove_large_documents_from_all_collections(max_size_bytes: int = 100*1024) -> str:
+    """
+    Go through all collections and remove all documents larger than max_size_bytes.
+    """
+    client = get_chroma_client()
+    collections = client.list_collections()
+    count = 0
+    for coll in collections:
+        if hasattr(coll, 'name'):
+            collection = client.get_collection(coll.name)
+        else:
+            collection = client.get_collection(coll)
+        print(f"Checking collection: {collection.name}")
+        total_deleted = 0
+        offset = 0
+        batch_size = 100
+        while True:
+            batch = collection.get(include=["documents"], limit=batch_size, offset=offset)
+            docs = batch.get("documents", [])
+            ids = batch.get("ids", [])
+            if not docs or not ids:
+                break
+            to_delete = []
+            for doc, doc_id in zip(docs, ids):
+                if doc and isinstance(doc, str) and len(doc.encode("utf-8")) > max_size_bytes:
+                    to_delete.append(doc_id)
+            if to_delete:
+                collection.delete(ids=to_delete)
+                total_deleted += len(to_delete)
+                count += total_deleted
+            if len(docs) < batch_size:
+                break
+            offset += batch_size
+    return f"Total deleted from all collections: {count}"
 
 def main():
     """Entry point for the Chroma MCP server."""
