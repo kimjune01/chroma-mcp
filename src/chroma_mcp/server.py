@@ -137,12 +137,10 @@ def _validate_iso8601(val, name):
 
 @mcp.tool()
 async def list_memories(
-    limit: Optional[int] = 10,
+    limit: Optional[int] = 100,
     offset: Optional[int] = 0
 ) -> List[str]:
     """List all memory names in the database with pagination support. This is useful for discovering available memory stores for further queries."""
-    _validate_positive_int(limit, "limit")
-    _validate_positive_int(offset, "offset")
     client = get_chroma_client()
     try:
         colls = client.list_collections(limit=limit, offset=offset)
@@ -159,10 +157,20 @@ async def get_memory_info(memory_name: str) -> Dict:
         collection = client.get_collection(memory_name)
         count = collection.count()
         peek_results = collection.peek(limit=3)
+        # Remove embeddings from peek_results
+        if isinstance(peek_results, list):
+            cleaned_peek = [
+                {k: v for k, v in doc.items() if k != "embeddings"} if isinstance(doc, dict) else doc
+                for doc in peek_results
+            ]
+        elif isinstance(peek_results, dict):
+            cleaned_peek = [{k: v for k, v in peek_results.items() if k != "embeddings"}]
+        else:
+            cleaned_peek = [peek_results]
         return {
             "name": memory_name,
             "count": count,
-            "sample_documents": peek_results
+            "sample_documents": cleaned_peek
         }
     except Exception as e:
         raise Exception(f"Failed to get memory info for '{memory_name}': {str(e)}") from e
@@ -176,7 +184,7 @@ async def query_memories(
     where_document: Optional[Dict] = None,
     include: List[str] = ["documents", "metadatas", "distances"]
 ) -> Dict:
-    """Query documents from a memory with advanced filtering. This tool is ideal for retrieving relevant documents from a specific memory based on query text and optional filters. Querying by text performs a semantic search using vector embeddings."""
+    """Query browser history from a memory with advanced filtering. This tool is ideal for retrieving relevant documents from a specific memory based on query text and optional filters. Querying by text performs a semantic search using vector embeddings."""
     _validate_non_empty_str(memory_name, "memory_name")
     _validate_non_empty_list(query_texts, "query_texts")
     _validate_positive_int(n_results, "n_results")
@@ -203,12 +211,11 @@ async def get_memory_documents(
     limit: Optional[int] = 10,
     offset: Optional[int] = 0
 ) -> Dict:
-    """Get documents from a memory with optional filtering. Use this to retrieve specific documents or subsets of documents from a memory by ID or filter criteria."""
+    """Get browser history documents from a memory with optional filtering. Use this to retrieve specific documents or subsets of browser history from a memory by ID or filter criteria. Note: memory IDs are actually URLs of web pages."""
     _validate_non_empty_str(memory_name, "memory_name")
     if ids is not None:
         _validate_non_empty_list(ids, "ids")
     _validate_positive_int(limit, "limit")
-    _validate_positive_int(offset, "offset")
     client = get_chroma_client()
     try:
         collection = client.get_collection(memory_name)
@@ -232,13 +239,12 @@ async def query_memories_by_date_range(
     offset: Optional[int] = 0
 ) -> Dict[str, Dict]:
     """
-    Query documents from multiple memories within a date range. This is useful for retrieving time-bounded data across several memories, such as logs or events within a specific period.
+    Query browser history from multiple memories within a date range. This is useful for retrieving time-bounded data across several memories, such as logs or events within a specific period.
     """
     _validate_non_empty_list(memory_names, "memory_names")
     _validate_iso8601(start_date, "start_date")
     _validate_iso8601(end_date, "end_date")
     _validate_positive_int(limit, "limit")
-    _validate_positive_int(offset, "offset")
     client = get_chroma_client()
     results = {}
     # Convert ISO 8601 to epoch seconds
@@ -267,7 +273,7 @@ async def query_memories_with_texts(
     include: List[str] = ["documents", "metadatas", "distances"]
 ) -> Dict[str, Dict]:
     """
-    Query multiple memories with the same query texts. Use this to perform parallel or comparative searches across several memories at once. Querying by text performs a semantic search using vector embeddings.
+    Query browser history from multiple memories with the same query texts. Use this to perform parallel or comparative searches across several memories at once. Querying by text performs a semantic search using vector embeddings.
     """
     _validate_non_empty_list(memory_names, "memory_names")
     _validate_non_empty_list(query_texts, "query_texts")
@@ -364,7 +370,7 @@ async def recall_recent_conversations(
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
 ) -> dict:
-    """Recall recent conversations and chats by retrieving them from the database.
+    """Recall recent browser history and chats by retrieving them from the database.
     
     Args:
         mcp_client_name: Name of the MCP Client. e.g. "claude-desktop"
@@ -375,7 +381,7 @@ async def recall_recent_conversations(
     If no time range is specified, the tool will automatically expand the search window: it will first try since yesterday, then since a week ago, then a month ago, then a year ago, until results are found or all windows are exhausted.
     
     Returns:
-        A dict of recalled conversations, sorted by most recent first (may be empty).
+        A dict of recalled browser history, sorted by most recent first (may be empty).
     """
     client = get_chroma_client()
     try:
